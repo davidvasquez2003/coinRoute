@@ -1,53 +1,54 @@
-# Fetch
 from decimal import Decimal
 import time
 import requests
 import argparse
 
+
 def rate_limiter(period):
     def decorator(func):
+        # mutable so inner function can be modified 
         last_call=[0.0]
         
         def wrapper(*args, **kwargs):
             last_call
-            
             current_time = time.time()
             
+            # if last call was within the period, skip execution
             if current_time - last_call[0] < period:
-                print("Rate limited!")
+                print("Rate limited")
                 return None
             
+            # update last call timestamp and continue
             last_call[0] = current_time
-            
             return func(*args, **kwargs)
     
         return wrapper
     return decorator            
             
-        
+# simulates the api rate limit   
 @rate_limiter(2)
 def fetch_gemini ():
     url = "https://api.gemini.com/v1/book/BTCUSD"
     resp = requests.get(url)
     data = resp.json()
+    
     bids =[]
     asks=[]
     
+    # Gemini return values for bids/asks in the string "price" and "amount"
     for entry in data ["bids"]:
         price = Decimal(entry["price"])
         amount= Decimal(entry["amount"])
-        
         bids.append([price, amount])
         
     for entry in data ["asks"]:
         price = Decimal(entry["price"])
         amount= Decimal(entry["amount"])
-        
         asks.append([price, amount])
         
     
     return bids, asks
-
+# simulates the api rate limit
 @rate_limiter(2)
 def fetch_coinbase ():
     url = "https://api.exchange.coinbase.com/products/BTC-USD/book?level=2"
@@ -55,24 +56,20 @@ def fetch_coinbase ():
     data = resp.json()
     bids =[]
     asks=[]
-    
+    # Coinbase returns bids/asks as lists: [price, size]
     for entry in data ["bids"]:
         price = Decimal(entry[0])
         amount=Decimal(entry[1])
- 
-        
         bids.append([price, amount])
         
     for entry in data ["asks"]:
         price = Decimal(entry[0])
         amount=Decimal(entry[1])
-
-        
-        asks.append([price, amount])
-        
+        asks.append([price, amount]) 
     
     return bids, asks
 
+# calculate cost of buying BTC
 def exec_ask(asks, target_btc):
     # Counters set at 0
     total_cost = Decimal('0')
@@ -91,16 +88,15 @@ def exec_ask(asks, target_btc):
         total_btc += btc_to_buy
         total_cost += cost
 
-        # print(f"Price:{price}\tbtc to buy:{btc_to_buy}\ttotalbtc{total_btc}\ttotal cost{total_cost}")
-
     return total_cost
 
+# calculate revenue of selling BTC
 def exec_bid(bids, target_btc):
     total_revenue = Decimal('0')
     total_btc = Decimal('0')
-
-    # bids sorted high to low
+    
     for price, amount in bids:
+        # stop if bid reached the target btc
         if total_btc >= target_btc:
             break
 
@@ -111,40 +107,47 @@ def exec_bid(bids, target_btc):
         total_btc += btc_to_sell
         total_revenue += revenue
 
-        # print(f"Price:{price}\tbtc sold:{btc_to_sell}\ttotalbtc{total_btc}\ttotal revenue{total_revenue}")
-
     return total_revenue
 
+# Script entry point
 gemini_result = fetch_gemini()
 coinbase_result = fetch_coinbase()
 
+# If either API call was rate-limited, skip execution
 if gemini_result is None or coinbase_result is None:
     print("One of the exchanges was rate limited. ")
 else:
+    # Read command-line argument: --qty (amount of btc)
     parser = argparse.ArgumentParser(description="BTC-USD order book aggregator")
     parser.add_argument("--qty", type=Decimal, default=Decimal('10'), help="Quantity of BTC to buy/sell")
     args = parser.parse_args()
     qty = args.qty
-
+    
+    # unpack order books
     gemini_bids, gemini_asks = gemini_result
     coinbase_bids, coinbase_asks = coinbase_result
-
+    
+    # combine liquidity sources (gemini + coinbase)
     combined_bids = gemini_bids + coinbase_bids
     combined_asks = gemini_asks + coinbase_asks
-
+    
+    # ensure proper sorting
+    # bids are high to low
     combined_bids.sort(key=lambda x: x[0], reverse=True)
+    # asks are low to high
     combined_asks.sort(key=lambda x: x[0])
-
+    
+    # run simulated trades
     result_ask = exec_ask(combined_asks, qty)
     result_bid = exec_bid(combined_bids,qty)
     
+    # format USD (XXX,XXX.XX)
     amount_ask = result_ask
     formatted_amount_ask ="${:,.2f}".format(amount_ask)
-    
     amount_bid = result_bid
     formatted_amount_bid ="${:,.2f}".format(amount_bid)
     
-    
+    # Final output
     print(f"To buy {qty} BTC: {formatted_amount_ask}")
     print(f"To sell {qty} BTC: {formatted_amount_bid}")
    
