@@ -10,7 +10,6 @@ def rate_limiter(period):
         last_call=[0.0]
         
         def wrapper(*args, **kwargs):
-            last_call
             current_time = time.time()
             
             # if last call was within the period, skip execution
